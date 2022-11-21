@@ -1,59 +1,85 @@
-import './css/styles.css';
+import { getImgs } from './API/pixabay';
+import { createMarkup } from './js/createMarkUp';
 import Notiflix from 'notiflix';
 import SimpleLightbox from 'simplelightbox';
 import 'simplelightbox/dist/simple-lightbox.min.css';
-import { getPictures, page, query } from './js/pixabay';
-import { createMarkup } from './js/markup';
-import { formRef, galleryRef, loadRef } from './js/refs';
+//-------------------------------------------------//
 
-formRef.addEventListener('submit', onSubmit);
-loadRef.addEventListener('click', onLoadClick);
+const refs = {
+  form: document.querySelector('.search-form'),
+  target: document.querySelector('.target'),
+  gallery: document.querySelector('.gallery'),
+};
+let page = 1;
+let searchQuery = null;
+let lightbox;
 
-const lightbox = new SimpleLightbox('.gallery a');
+/////////////////////// for fun
+setInterval(() => {
+  document.body.style.backgroundColor = getRandomHexColor();
+  refs.form.style.backgroundColor = getRandomHexColor();
+}, 3000);
 
-async function onSubmit(event) {
-  event.preventDefault();
-  const searchQuery = event.currentTarget.elements.searchQuery.value
-    .trim()
-    .toLowerCase();
-  if (!searchQuery) {
-    Notiflix.Notify.failure('Enter a search query!');
-    return;
+//-------------------------------------------------------//
+const obs = new IntersectionObserver(onObs, {
+  rootMargin: '300px',
+});
+
+refs.form.addEventListener('submit', onSubmitForm);
+//---------------------------------------------------------//
+function onSubmitForm(evt) {
+  evt.preventDefault();
+
+  obs.unobserve(refs.target);
+
+  refs.gallery.innerHTML = '';
+  page = 1;
+  searchQuery = evt.target.elements.searchQuery.value;
+  if (searchQuery === '') {
+    return Notiflix.Notify.failure("Sorry, you didn't write anything");
   }
-  try {
-    const searchData = await getPictures(searchQuery);
-    const { hits, totalHits } = searchData;
-    if (hits.length === 0) {
-      Notiflix.Notify.failure(
-        'Sorry, there are no images matching your search query. Please try again.'
+  getImgs(searchQuery, page)
+    .then(response => {
+      console.log(response);
+      if (!response.data.totalHits) {
+        return Notiflix.Notify.failure(
+          'Sorry, there are no images matching your search query. Please try again.'
+        );
+      }
+      Notiflix.Notify.success(
+        `Hooray! We found ${response.data.totalHits} images.`
       );
-      return;
-    }
-    Notiflix.Notify.success(`Hooray! We found ${totalHits} images!`);
-    const markup = hits.map(item => createMarkup(item)).join('');
-    galleryRef.innerHTML = markup;
-    if (totalHits > 40) {
-      loadRef.classList.remove('js-load-btn');
-      page += 1;
-    }
-    lightbox.refresh();
-  } catch (error) {
-    Notiflix.Notify.failure('Something went wrong! Please retry');
-    console.log(error);
-  }
+      console.log(response.data);
+      createMarkup(response.data.hits);
+      lightbox = new SimpleLightbox('.gallery a');
+      obs.observe(refs.target);
+    })
+    .catch(console.log);
 }
 
-async function onLoadClick() {
-  const response = await getPictures(query);
-  const { hits, totalHits } = response;
-  const markup = hits.map(item => createMarkup(item)).join('');
-  galleryRef.insertAdjacentHTML('beforeend', markup);
-  lightbox.refresh();
-  const amountOfPages = totalHits / 40 - page;
-  if (amountOfPages < 1) {
-    loadRef.classList.add('js-load-btn');
-    Notiflix.Notify.info(
-      "We're sorry, but you've reached the end of search results."
-    );
-  }
+function onObs(entries) {
+  entries.forEach(entry => {
+    console.log(entry);
+    if (entry.isIntersecting) {
+      page += 1;
+
+      getImgs(searchQuery, page)
+        .then(response => {
+          createMarkup(response.data.hits);
+          lightbox.refresh();
+
+          if (page * 40 > response.data.totalHits) {
+            obs.unobserve(refs.target);
+            return Notiflix.Notify.failure(
+              "We're sorry, but you've reached the end of search results."
+            );
+          }
+        })
+        .catch(console.log);
+    }
+  });
+}
+
+function getRandomHexColor() {
+  return `#${Math.floor(Math.random() * 16777215).toString(16)}`;
 }
